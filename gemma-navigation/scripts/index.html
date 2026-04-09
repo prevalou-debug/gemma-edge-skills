@@ -141,23 +141,13 @@ limitations under the License.
             ...steps.map((s, i) => `${i + 1}. ${s}`),
           ].join('\n');
 
-          // Encode route data for the webview
-          const routePayload = {
-            originCoords,
-            destCoords,
-            geometry: route.geometry,   // GeoJSON LineString
-            steps,
-            duration: durationStr,
-            distance: distanceStr,
-            mode,
-          };
-          const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(routePayload))));
+          // Google Maps embed — no API key, no external hosting needed
           const mapUrl =
-            `https://cdn.jsdelivr.net/gh/prevalou-debug/gemma-edge-skills@main/gemma-navigation/assets/map.html?data=${encoded}`;
+            `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}&output=embed`;
 
           return JSON.stringify({
             result: summary,
-            webview: {url: mapUrl, aspectRatio: 1.4},
+            webview: {iframe: true, url: mapUrl},
           });
         } catch (e) {
           console.error(e);
