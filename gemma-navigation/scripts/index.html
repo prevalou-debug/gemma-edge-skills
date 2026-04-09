@@ -32,18 +32,24 @@ limitations under the License.
         cycling: 'bike',
       };
 
-      // Nominatim geocoding: place name → { lat, lon }
+      // Photon geocoding (Komoot) — no User-Agent restriction, CORS open
       async function geocode(place) {
-        const url =
-          `https://nominatim.openstreetmap.org/search?` +
-          `q=${encodeURIComponent(place)}&format=json&limit=1`;
-        const res = await fetch(url, {
-          headers: {'Accept-Language': 'en', 'User-Agent': 'GemmaNavigationSkill/1.0'},
-        });
-        if (!res.ok) throw new Error(`Geocoding failed (${res.status}): ${place}`);
-        const data = await res.json();
-        if (!data.length) throw new Error(`Location not found: "${place}"`);
-        return {lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name};
+        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(place)}&limit=1&lang=en`;
+        let res;
+        try {
+          res = await fetch(url);
+        } catch (e) {
+          throw new Error(`Geocoding network error for "${place}": ${e.message}`);
+        }
+        if (!res.ok) throw new Error(`Geocoding HTTP ${res.status} for "${place}"`);
+        const json = await res.json();
+        if (!json.features || !json.features.length)
+          throw new Error(`Location not found: "${place}"`);
+        const feat = json.features[0];
+        const [lon, lat] = feat.geometry.coordinates;
+        const props = feat.properties;
+        const display = [props.name, props.city, props.country].filter(Boolean).join(', ');
+        return {lat, lon, display};
       }
 
       // OSRM routing: coords → route object
@@ -53,12 +59,17 @@ limitations under the License.
         const url =
           `https://router.project-osrm.org/route/v1/${profile}/${coords}` +
           `?steps=true&geometries=geojson&overview=full&annotations=false`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Routing failed (${res.status})`);
-        const data = await res.json();
-        if (data.code !== 'Ok' || !data.routes.length)
-          throw new Error(`No route found between the two locations (OSRM: ${data.code})`);
-        return data.routes[0];
+        let res;
+        try {
+          res = await fetch(url);
+        } catch (e) {
+          throw new Error(`Routing network error: ${e.message}`);
+        }
+        if (!res.ok) throw new Error(`Routing HTTP ${res.status}`);
+        const json = await res.json();
+        if (json.code !== 'Ok' || !json.routes.length)
+          throw new Error(`No route found (OSRM: ${json.code})`);
+        return json.routes[0];
       }
 
       // Format seconds → "X h Y min" or "Y min"
@@ -99,19 +110,22 @@ limitations under the License.
       }
 
       window['ai_edge_gallery_get_result'] = async (data) => {
+        let input;
         try {
-          const input = JSON.parse(data);
-          const origin = (input.origin || '').trim();
-          const destination = (input.destination || '').trim();
-          const mode = (input.mode || 'driving').toLowerCase();
+          input = typeof data === 'string' ? JSON.parse(data) : data;
+        } catch (e) {
+          return JSON.stringify({result: `[DEBUG] JSON parse error: ${e.message} — received: ${String(data).slice(0, 200)}`});
+        }
 
-          if (!origin || !destination)
-            return JSON.stringify({error: 'Please provide both an origin and a destination.'});
+        const origin = (input.origin || '').trim();
+        const destination = (input.destination || '').trim();
+        const mode = (input.mode || 'driving').toLowerCase();
 
-          if (!['driving', 'walking', 'cycling'].includes(mode))
-            return JSON.stringify({error: `Unknown mode "${mode}". Use driving, walking, or cycling.`});
+        if (!origin || !destination)
+          return JSON.stringify({result: `[DEBUG] Missing fields — origin="${origin}" destination="${destination}" — full input: ${JSON.stringify(input)}`});
 
-          // Geocode both locations in parallel
+        try {
+          // Geocode both locations
           const [originCoords, destCoords] = await Promise.all([
             geocode(origin),
             geocode(destination),
@@ -120,7 +134,7 @@ limitations under the License.
           // Get the route
           const route = await getRoute(originCoords, destCoords, mode);
 
-          // Build turn-by-turn steps from all legs
+          // Build turn-by-turn steps
           const steps = [];
           for (const leg of route.legs) {
             for (const step of leg.steps) {
@@ -132,16 +146,15 @@ limitations under the License.
           const distanceStr = formatDistance(route.distance);
           const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1);
 
-          // Build text summary
           const summary = [
             `${modeLabel} route: ${distanceStr}, ~${durationStr}`,
-            `From: ${originCoords.display.split(',').slice(0, 2).join(',')}`,
-            `To:   ${destCoords.display.split(',').slice(0, 2).join(',')}`,
+            `From: ${originCoords.display}`,
+            `To:   ${destCoords.display}`,
             '',
             ...steps.map((s, i) => `${i + 1}. ${s}`),
           ].join('\n');
 
-          // Google Maps embed — no API key, no external hosting needed
+          // Google Maps embed — no API key needed
           const mapUrl =
             `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}&output=embed`;
 
@@ -150,8 +163,8 @@ limitations under the License.
             webview: {iframe: true, url: mapUrl},
           });
         } catch (e) {
-          console.error(e);
-          return JSON.stringify({error: `Navigation error: ${e.message}`});
+          // Return error as result (not error field) so Gemma displays it verbatim
+          return JSON.stringify({result: `Navigation error: ${e.message}`});
         }
       };
     </script>
