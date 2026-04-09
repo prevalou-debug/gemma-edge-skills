@@ -1,0 +1,169 @@
+<!--
+@license
+Copyright 2026 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemma Navigation</title>
+  </head>
+  <body>
+    <script>
+      // OSRM profile mapping
+      const OSRM_PROFILES = {
+        driving: 'driving',
+        walking: 'foot',
+        cycling: 'bike',
+      };
+
+      // Nominatim geocoding: place name → { lat, lon }
+      async function geocode(place) {
+        const url =
+          `https://nominatim.openstreetmap.org/search?` +
+          `q=${encodeURIComponent(place)}&format=json&limit=1`;
+        const res = await fetch(url, {
+          headers: {'Accept-Language': 'en', 'User-Agent': 'GemmaNavigationSkill/1.0'},
+        });
+        if (!res.ok) throw new Error(`Geocoding failed (${res.status}): ${place}`);
+        const data = await res.json();
+        if (!data.length) throw new Error(`Location not found: "${place}"`);
+        return {lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name};
+      }
+
+      // OSRM routing: coords → route object
+      async function getRoute(origin, dest, mode) {
+        const profile = OSRM_PROFILES[mode] || 'driving';
+        const coords = `${origin.lon},${origin.lat};${dest.lon},${dest.lat}`;
+        const url =
+          `https://router.project-osrm.org/route/v1/${profile}/${coords}` +
+          `?steps=true&geometries=geojson&overview=full&annotations=false`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Routing failed (${res.status})`);
+        const data = await res.json();
+        if (data.code !== 'Ok' || !data.routes.length)
+          throw new Error(`No route found between the two locations (OSRM: ${data.code})`);
+        return data.routes[0];
+      }
+
+      // Format seconds → "X h Y min" or "Y min"
+      function formatDuration(seconds) {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.round((seconds % 3600) / 60);
+        return h > 0 ? `${h} h ${m} min` : `${m} min`;
+      }
+
+      // Format metres → "X.X km" or "X m"
+      function formatDistance(metres) {
+        return metres >= 1000
+          ? `${(metres / 1000).toFixed(1)} km`
+          : `${Math.round(metres)} m`;
+      }
+
+      // Extract human-readable instruction from an OSRM step
+      function stepInstruction(step) {
+        const maneuver = step.maneuver || {};
+        const type = maneuver.type || '';
+        const modifier = maneuver.modifier || '';
+        const name = step.name ? ` onto ${step.name}` : '';
+        const dist = step.distance > 10 ? ` (${formatDistance(step.distance)})` : '';
+
+        if (type === 'depart') return `Start on ${step.name || 'the road'}${dist}`;
+        if (type === 'arrive') return `Arrive at your destination`;
+        if (type === 'turn') return `Turn ${modifier}${name}${dist}`;
+        if (type === 'continue') return `Continue straight${name}${dist}`;
+        if (type === 'roundabout') {
+          const exit = maneuver.exit ? ` (exit ${maneuver.exit})` : '';
+          return `Take the roundabout${exit}${name}${dist}`;
+        }
+        if (type === 'merge') return `Merge ${modifier}${name}${dist}`;
+        if (type === 'fork') return `Keep ${modifier} at the fork${name}${dist}`;
+        if (type === 'on ramp') return `Take the ramp ${modifier}${name}${dist}`;
+        if (type === 'off ramp') return `Exit the ramp${name}${dist}`;
+        return `${type}${modifier ? ' ' + modifier : ''}${name}${dist}`;
+      }
+
+      window['ai_edge_gallery_get_result'] = async (data) => {
+        try {
+          const input = JSON.parse(data);
+          const origin = (input.origin || '').trim();
+          const destination = (input.destination || '').trim();
+          const mode = (input.mode || 'driving').toLowerCase();
+
+          if (!origin || !destination)
+            return JSON.stringify({error: 'Please provide both an origin and a destination.'});
+
+          if (!['driving', 'walking', 'cycling'].includes(mode))
+            return JSON.stringify({error: `Unknown mode "${mode}". Use driving, walking, or cycling.`});
+
+          // Geocode both locations in parallel
+          const [originCoords, destCoords] = await Promise.all([
+            geocode(origin),
+            geocode(destination),
+          ]);
+
+          // Get the route
+          const route = await getRoute(originCoords, destCoords, mode);
+
+          // Build turn-by-turn steps from all legs
+          const steps = [];
+          for (const leg of route.legs) {
+            for (const step of leg.steps) {
+              steps.push(stepInstruction(step));
+            }
+          }
+
+          const durationStr = formatDuration(route.duration);
+          const distanceStr = formatDistance(route.distance);
+          const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1);
+
+          // Build text summary
+          const summary = [
+            `${modeLabel} route: ${distanceStr}, ~${durationStr}`,
+            `From: ${originCoords.display.split(',').slice(0, 2).join(',')}`,
+            `To:   ${destCoords.display.split(',').slice(0, 2).join(',')}`,
+            '',
+            ...steps.map((s, i) => `${i + 1}. ${s}`),
+          ].join('\n');
+
+          // Encode route data for the webview
+          const routePayload = {
+            originCoords,
+            destCoords,
+            geometry: route.geometry,   // GeoJSON LineString
+            steps,
+            duration: durationStr,
+            distance: distanceStr,
+            mode,
+          };
+          const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(routePayload))));
+          const mapUrl =
+            `https://prevalou-debug.github.io/gemma-edge-skills/gemma-navigation/assets/map.html?data=${encoded}`;
+
+          return JSON.stringify({
+            result: summary,
+            webview: {url: mapUrl, aspectRatio: 1.4},
+          });
+        } catch (e) {
+          console.error(e);
+          return JSON.stringify({error: `Navigation error: ${e.message}`});
+        }
+      };
+    </script>
+  </body>
+</html>
