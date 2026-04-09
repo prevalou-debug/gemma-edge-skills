@@ -25,146 +25,33 @@ limitations under the License.
   </head>
   <body>
     <script>
-      // OSRM profile mapping
-      const OSRM_PROFILES = {
-        driving: 'driving',
-        walking: 'foot',
-        cycling: 'bike',
-      };
-
-      // Photon geocoding (Komoot) — no User-Agent restriction, CORS open
-      async function geocode(place) {
-        const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(place)}&limit=1&lang=en`;
-        let res;
-        try {
-          res = await fetch(url);
-        } catch (e) {
-          throw new Error(`Geocoding network error for "${place}": ${e.message}`);
-        }
-        if (!res.ok) throw new Error(`Geocoding HTTP ${res.status} for "${place}"`);
-        const json = await res.json();
-        if (!json.features || !json.features.length)
-          throw new Error(`Location not found: "${place}"`);
-        const feat = json.features[0];
-        const [lon, lat] = feat.geometry.coordinates;
-        const props = feat.properties;
-        const display = [props.name, props.city, props.country].filter(Boolean).join(', ');
-        return {lat, lon, display};
-      }
-
-      // OSRM routing: coords → route object
-      async function getRoute(origin, dest, mode) {
-        const profile = OSRM_PROFILES[mode] || 'driving';
-        const coords = `${origin.lon},${origin.lat};${dest.lon},${dest.lat}`;
-        const url =
-          `https://router.project-osrm.org/route/v1/${profile}/${coords}` +
-          `?steps=true&geometries=geojson&overview=full&annotations=false`;
-        let res;
-        try {
-          res = await fetch(url);
-        } catch (e) {
-          throw new Error(`Routing network error: ${e.message}`);
-        }
-        if (!res.ok) throw new Error(`Routing HTTP ${res.status}`);
-        const json = await res.json();
-        if (json.code !== 'Ok' || !json.routes.length)
-          throw new Error(`No route found (OSRM: ${json.code})`);
-        return json.routes[0];
-      }
-
-      // Format seconds → "X h Y min" or "Y min"
-      function formatDuration(seconds) {
-        const h = Math.floor(seconds / 3600);
-        const m = Math.round((seconds % 3600) / 60);
-        return h > 0 ? `${h} h ${m} min` : `${m} min`;
-      }
-
-      // Format metres → "X.X km" or "X m"
-      function formatDistance(metres) {
-        return metres >= 1000
-          ? `${(metres / 1000).toFixed(1)} km`
-          : `${Math.round(metres)} m`;
-      }
-
-      // Extract human-readable instruction from an OSRM step
-      function stepInstruction(step) {
-        const maneuver = step.maneuver || {};
-        const type = maneuver.type || '';
-        const modifier = maneuver.modifier || '';
-        const name = step.name ? ` onto ${step.name}` : '';
-        const dist = step.distance > 10 ? ` (${formatDistance(step.distance)})` : '';
-
-        if (type === 'depart') return `Start on ${step.name || 'the road'}${dist}`;
-        if (type === 'arrive') return `Arrive at your destination`;
-        if (type === 'turn') return `Turn ${modifier}${name}${dist}`;
-        if (type === 'continue') return `Continue straight${name}${dist}`;
-        if (type === 'roundabout') {
-          const exit = maneuver.exit ? ` (exit ${maneuver.exit})` : '';
-          return `Take the roundabout${exit}${name}${dist}`;
-        }
-        if (type === 'merge') return `Merge ${modifier}${name}${dist}`;
-        if (type === 'fork') return `Keep ${modifier} at the fork${name}${dist}`;
-        if (type === 'on ramp') return `Take the ramp ${modifier}${name}${dist}`;
-        if (type === 'off ramp') return `Exit the ramp${name}${dist}`;
-        return `${type}${modifier ? ' ' + modifier : ''}${name}${dist}`;
-      }
-
       window['ai_edge_gallery_get_result'] = async (data) => {
-        let input;
         try {
-          input = typeof data === 'string' ? JSON.parse(data) : data;
-        } catch (e) {
-          return JSON.stringify({result: `[DEBUG] JSON parse error: ${e.message} — received: ${String(data).slice(0, 200)}`});
-        }
+          const input = typeof data === 'string' ? JSON.parse(data) : data;
+          const origin      = (input.origin      || '').trim();
+          const destination = (input.destination || '').trim();
+          const mode        = (input.mode        || 'driving').toLowerCase();
 
-        const origin = (input.origin || '').trim();
-        const destination = (input.destination || '').trim();
-        const mode = (input.mode || 'driving').toLowerCase();
-
-        if (!origin || !destination)
-          return JSON.stringify({result: `[DEBUG] Missing fields — origin="${origin}" destination="${destination}" — full input: ${JSON.stringify(input)}`});
-
-        try {
-          // Geocode both locations
-          const [originCoords, destCoords] = await Promise.all([
-            geocode(origin),
-            geocode(destination),
-          ]);
-
-          // Get the route
-          const route = await getRoute(originCoords, destCoords, mode);
-
-          // Build turn-by-turn steps
-          const steps = [];
-          for (const leg of route.legs) {
-            for (const step of leg.steps) {
-              steps.push(stepInstruction(step));
-            }
+          if (!origin || !destination) {
+            return JSON.stringify({
+              result: `Erreur : origine ou destination manquante. Reçu : ${JSON.stringify(input)}`
+            });
           }
 
-          const durationStr = formatDuration(route.duration);
-          const distanceStr = formatDistance(route.distance);
-          const modeLabel = mode.charAt(0).toUpperCase() + mode.slice(1);
-
-          const summary = [
-            `${modeLabel} route: ${distanceStr}, ~${durationStr}`,
-            `From: ${originCoords.display}`,
-            `To:   ${destCoords.display}`,
-            '',
-            ...steps.map((s, i) => `${i + 1}. ${s}`),
-          ].join('\n');
-
-          // Google Maps embed — no API key needed
+          // Google Maps directions embed — no network call needed
+          const gmMode = mode === 'walking' ? 'w' : mode === 'cycling' ? 'b' : 'd';
           const mapUrl =
-            `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}&daddr=${encodeURIComponent(destination)}&output=embed`;
+            `https://maps.google.com/maps?saddr=${encodeURIComponent(origin)}` +
+            `&daddr=${encodeURIComponent(destination)}&dirflg=${gmMode}&output=embed`;
+
+          const modeLabel = {driving: 'En voiture', walking: 'À pied', cycling: 'À vélo'}[mode] || mode;
 
           return JSON.stringify({
-            result: summary,
+            result: `${modeLabel} de ${origin} à ${destination}\nOuvrez la carte ci-dessous pour l'itinéraire complet.`,
             webview: {iframe: true, url: mapUrl},
           });
         } catch (e) {
-          // Return error as result (not error field) so Gemma displays it verbatim
-          return JSON.stringify({result: `Navigation error: ${e.message}`});
+          return JSON.stringify({result: `Erreur JS : ${e.message}`});
         }
       };
     </script>
