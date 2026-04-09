@@ -153,7 +153,7 @@ limitations under the License.
           };
           const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(routePayload))));
           const mapUrl =
-            `https://prevalou-debug.github.io/gemma-edge-skills/gemma-navigation/assets/map.html?data=${encoded}`;
+            `https://cdn.jsdelivr.net/gh/prevalou-debug/gemma-edge-skills@main/gemma-navigation/assets/map.html?data=${encoded}`;
 
           return JSON.stringify({
             result: summary,
