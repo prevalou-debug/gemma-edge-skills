@@ -16,37 +16,34 @@ http://www.apache.org/licenses/LICENSE-2.0
           const lang  = (input.lang  || 'fr').toLowerCase().slice(0, 2);
 
           if (!query) {
-            return JSON.stringify({result: 'Aucune requete recue. Input: ' + JSON.stringify(input)});
+            return JSON.stringify({result: 'Aucune requete recue.'});
           }
 
-          // DuckDuckGo Instant Answers — free, no key, CORS open
-          const params = new URLSearchParams({
-            q: query,
-            format: 'json',
-            no_html: '1',
-            skip_disambig: '1',
-            t: 'GemmaWebSearch',
+          // Try DuckDuckGo Instant Answers for a quick summary
+          let summary = '';
+          try {
+            const params = new URLSearchParams({
+              q: query, format: 'json', no_html: '1', skip_disambig: '1', t: 'GemmaWebSearch',
+            });
+            const res = await fetch('https://api.duckduckgo.com/?' + params);
+            const d = await res.json();
+
+            const lines = [];
+            if (d.Answer) lines.push('Reponse : ' + d.Answer);
+            if (d.AbstractText) lines.push(d.AbstractText + (d.AbstractURL ? '\nSource : ' + d.AbstractURL : ''));
+            if (d.Definition) lines.push('Definition : ' + d.Definition);
+            const topics = (d.RelatedTopics || []).filter(t => t.Text).slice(0, 3).map(t => '- ' + t.Text);
+            if (topics.length) lines.push('Sujets lies :\n' + topics.join('\n'));
+            if (lines.length) summary = lines.join('\n\n') + '\n\n';
+          } catch (_) {}
+
+          // Always open full DuckDuckGo search results as webview
+          const searchUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(query) + '&kl=' + lang + '-' + lang;
+
+          return JSON.stringify({
+            result: summary + 'Resultats pour "' + query + '" (voir ci-dessous) :',
+            webview: {iframe: true, url: searchUrl},
           });
-          const res = await fetch('https://api.duckduckgo.com/?' + params);
-          const d = await res.json();
-
-          const lines = [];
-
-          if (d.Answer) lines.push('Reponse : ' + d.Answer);
-          if (d.AbstractText) lines.push(d.AbstractText + (d.AbstractURL ? '\nSource : ' + d.AbstractURL : ''));
-          if (d.Definition) lines.push('Definition : ' + d.Definition);
-
-          const topics = (d.RelatedTopics || [])
-            .filter(t => t.Text)
-            .slice(0, 4)
-            .map(t => '- ' + t.Text);
-          if (topics.length) lines.push('Sujets lies :\n' + topics.join('\n'));
-
-          const result = lines.length
-            ? 'Resultats DuckDuckGo pour "' + query + '" :\n\n' + lines.join('\n\n')
-            : 'Aucun resultat instantane pour "' + query + '". Essayez des mots-cles plus specifiques.';
-
-          return JSON.stringify({result});
         } catch (e) {
           return JSON.stringify({result: 'Erreur : ' + e.message});
         }
