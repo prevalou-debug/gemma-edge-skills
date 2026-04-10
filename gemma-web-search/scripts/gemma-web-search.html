@@ -13,44 +13,34 @@ http://www.apache.org/licenses/LICENSE-2.0
         try {
           const input = typeof data === 'string' ? JSON.parse(data) : data;
           const query = (input.query || '').trim();
-          const lang  = (input.lang  || 'fr').toLowerCase().slice(0, 2);
 
           if (!query) {
             return JSON.stringify({result: 'Aucune requete recue.'});
           }
 
-          // ── DuckDuckGo Instant Answers for a text summary ──────────────────
-          let resultText = '';
-          try {
-            const p = new URLSearchParams({
-              q: query, format: 'json', no_html: '1', skip_disambig: '1', t: 'GemmaSearch',
-            });
-            const d = await fetch('https://api.duckduckgo.com/?' + p).then(r => r.json());
-            const lines = [];
-            if (d.Answer)       lines.push(d.Answer);
-            if (d.AbstractText) lines.push(d.AbstractText.slice(0, 400) + (d.AbstractText.length > 400 ? '...' : ''));
-            if (d.Definition)   lines.push(d.Definition);
-            const topics = (d.RelatedTopics || []).filter(t => t.Text).slice(0, 3).map(t => '• ' + t.Text.slice(0, 120));
-            if (topics.length)  lines.push(topics.join('\n'));
-            if (lines.length)   resultText = lines.join('\n\n');
-          } catch (_) {}
+          const p = new URLSearchParams({
+            q: query, format: 'json', no_html: '1', skip_disambig: '1', t: 'GemmaSearch',
+          });
+          const d = await fetch('https://api.duckduckgo.com/?' + p).then(r => r.json());
 
-          if (!resultText) {
-            resultText = 'Aucun resultat instantane pour "' + query + '". Consultez la page de recherche ci-dessous pour les actualites et resultats complets.';
+          const lines = [];
+          if (d.Answer)       lines.push(d.Answer);
+          if (d.AbstractText) lines.push(d.AbstractText.slice(0, 500) + (d.AbstractText.length > 500 ? '...' : ''));
+          if (d.Definition)   lines.push(d.Definition);
+          const topics = (d.RelatedTopics || []).filter(t => t.Text).slice(0, 5)
+                           .map(t => '• ' + t.Text.slice(0, 150));
+          if (topics.length)  lines.push(topics.join('\n'));
+
+          if (!lines.length) {
+            return JSON.stringify({
+              result: 'Aucun resultat instantane pour "' + query + '".\n\nDuckDuckGo Instant Answers ne couvre pas les actualites ni les sujets peu connus. Essayez un terme plus precis ou plus connu.',
+            });
           }
 
-          // ── Webview: our own search page (no X-Frame-Options blocking) ─────
-          const pageUrl =
-            'https://prevalou-debug.github.io/gemma-edge-skills/gemma-web-search/assets/search.html' +
-            '?q=' + encodeURIComponent(query) +
-            '&lang=' + encodeURIComponent(lang);
+          return JSON.stringify({result: lines.join('\n\n')});
 
-          return JSON.stringify({
-            result: resultText,
-            webview: {iframe: true, url: pageUrl},
-          });
         } catch (e) {
-          return JSON.stringify({result: 'Erreur : ' + e.message});
+          return JSON.stringify({result: 'Erreur reseau : ' + e.message});
         }
       };
     </script>
