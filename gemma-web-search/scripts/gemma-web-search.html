@@ -13,34 +13,56 @@ http://www.apache.org/licenses/LICENSE-2.0
         try {
           const input = typeof data === 'string' ? JSON.parse(data) : data;
           const query = (input.query || '').trim();
+          const lang  = (input.lang  || 'fr').toLowerCase().slice(0, 2);
 
           if (!query) {
             return JSON.stringify({result: 'Aucune requete recue.'});
           }
 
-          const p = new URLSearchParams({
-            q: query, format: 'json', no_html: '1', skip_disambig: '1', t: 'GemmaSearch',
-          });
-          const d = await fetch('https://api.duckduckgo.com/?' + p).then(r => r.json());
-
           const lines = [];
-          if (d.Answer)       lines.push(d.Answer);
-          if (d.AbstractText) lines.push(d.AbstractText.slice(0, 500) + (d.AbstractText.length > 500 ? '...' : ''));
-          if (d.Definition)   lines.push(d.Definition);
-          const topics = (d.RelatedTopics || []).filter(t => t.Text).slice(0, 5)
-                           .map(t => '• ' + t.Text.slice(0, 150));
-          if (topics.length)  lines.push(topics.join('\n'));
+
+          // ── 1. DuckDuckGo Instant Answers (faits, définitions) ─────────────
+          try {
+            const p = new URLSearchParams({
+              q: query, format: 'json', no_html: '1', skip_disambig: '1', t: 'GemmaSearch',
+            });
+            const d = await fetch('https://api.duckduckgo.com/?' + p).then(r => r.json());
+            if (d.Answer)       lines.push(d.Answer);
+            if (d.AbstractText) lines.push(d.AbstractText.slice(0, 400) + (d.AbstractText.length > 400 ? '...' : ''));
+            if (d.Definition)   lines.push(d.Definition);
+            const topics = (d.RelatedTopics || []).filter(t => t.Text).slice(0, 3)
+                             .map(t => '• ' + t.Text.slice(0, 150));
+            if (topics.length)  lines.push(topics.join('\n'));
+          } catch (_) {}
+
+          // ── 2. Google News RSS (actualités récentes) ───────────────────────
+          try {
+            const gl  = lang.toUpperCase();
+            const rss = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query)
+                      + '&hl=' + lang + '&gl=' + gl + '&ceid=' + gl + ':' + lang;
+            const txt = await fetch(rss).then(r => r.text());
+            const xml = new DOMParser().parseFromString(txt, 'text/xml');
+            const items = [...xml.querySelectorAll('item')].slice(0, 6);
+            if (items.length) {
+              const news = items.map(item => {
+                const title  = item.querySelector('title')?.textContent  || '';
+                const source = item.querySelector('source')?.textContent || '';
+                return '• ' + title + (source ? ' (' + source + ')' : '');
+              });
+              lines.push('Actualites Google News :\n' + news.join('\n'));
+            }
+          } catch (_) {}
 
           if (!lines.length) {
             return JSON.stringify({
-              result: 'Aucun resultat instantane pour "' + query + '".\n\nDuckDuckGo Instant Answers ne couvre pas les actualites ni les sujets peu connus. Essayez un terme plus precis ou plus connu.',
+              result: 'Aucun resultat pour "' + query + '". Essayez un terme different.',
             });
           }
 
           return JSON.stringify({result: lines.join('\n\n')});
 
         } catch (e) {
-          return JSON.stringify({result: 'Erreur reseau : ' + e.message});
+          return JSON.stringify({result: 'Erreur : ' + e.message});
         }
       };
     </script>
