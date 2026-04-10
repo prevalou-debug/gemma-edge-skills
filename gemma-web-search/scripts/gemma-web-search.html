@@ -19,33 +19,35 @@ http://www.apache.org/licenses/LICENSE-2.0
             return JSON.stringify({result: 'Aucune requete recue.'});
           }
 
-          // DuckDuckGo Instant Answers for quick facts (works for well-known topics)
-          let summary = '';
+          // ── DuckDuckGo Instant Answers for a text summary ──────────────────
+          let resultText = '';
           try {
-            const params = new URLSearchParams({
+            const p = new URLSearchParams({
               q: query, format: 'json', no_html: '1', skip_disambig: '1', t: 'GemmaSearch',
             });
-            const d = await fetch('https://api.duckduckgo.com/?' + params).then(r => r.json());
-
+            const d = await fetch('https://api.duckduckgo.com/?' + p).then(r => r.json());
             const lines = [];
-            if (d.Answer) lines.push(d.Answer);
-            if (d.AbstractText) lines.push(d.AbstractText.slice(0, 300) + (d.AbstractText.length > 300 ? '...' : ''));
-            if (d.Definition) lines.push(d.Definition);
+            if (d.Answer)       lines.push(d.Answer);
+            if (d.AbstractText) lines.push(d.AbstractText.slice(0, 400) + (d.AbstractText.length > 400 ? '...' : ''));
+            if (d.Definition)   lines.push(d.Definition);
             const topics = (d.RelatedTopics || []).filter(t => t.Text).slice(0, 3).map(t => '• ' + t.Text.slice(0, 120));
-            if (topics.length) lines.push(topics.join('\n'));
-            if (lines.length) summary = lines.join('\n\n');
+            if (topics.length)  lines.push(topics.join('\n'));
+            if (lines.length)   resultText = lines.join('\n\n');
           } catch (_) {}
 
-          // Open full DuckDuckGo results page in the webview
-          const searchUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(query) + '&ia=web&kl=' + lang + '-' + lang;
+          if (!resultText) {
+            resultText = 'Aucun resultat instantane pour "' + query + '". Consultez la page de recherche ci-dessous pour les actualites et resultats complets.';
+          }
 
-          const resultText = summary
-            ? 'Reponse pour "' + query + '" :\n\n' + summary + '\n\nPage de recherche complete ci-dessous.'
-            : 'Resultats DuckDuckGo pour "' + query + '" affiches ci-dessous.';
+          // ── Webview: our own search page (no X-Frame-Options blocking) ─────
+          const pageUrl =
+            'https://prevalou-debug.github.io/gemma-edge-skills/gemma-web-search/assets/search.html' +
+            '?q=' + encodeURIComponent(query) +
+            '&lang=' + encodeURIComponent(lang);
 
           return JSON.stringify({
             result: resultText,
-            webview: {iframe: true, url: searchUrl},
+            webview: {iframe: true, url: pageUrl},
           });
         } catch (e) {
           return JSON.stringify({result: 'Erreur : ' + e.message});
