@@ -19,11 +19,10 @@ http://www.apache.org/licenses/LICENSE-2.0
             return JSON.stringify({result: 'Aucune requete recue. Input: ' + JSON.stringify(input)});
           }
 
-          const searchUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(query) + '&kl=' + lang + '-' + lang;
+          const searchUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(query);
 
           return JSON.stringify({
-            result: 'Resultats de recherche pour : ' + query,
-            webview: {url: searchUrl, aspectRatio: 1.6},
+            result: 'Recherche : ' + query + '\nOuvrir : ' + searchUrl,
           });
         } catch (e) {
           return JSON.stringify({result: 'Erreur : ' + e.message});
