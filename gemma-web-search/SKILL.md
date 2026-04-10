@@ -28,7 +28,7 @@ When the user wants a web search:
 1. Extract the **search query** from the user's message.
 2. Detect the **language** of the message (`fr`, `en`, `es`, `de`, etc.).
 3. Call the `run_js` tool with:
-   - **script name**: `index.html`
+   - **script name**: `gemma-web-search.html`
    - **data**: `{ "query": "<search query>", "lang": "<language code>" }`
 
 Do not call any other tool.

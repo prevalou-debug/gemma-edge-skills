@@ -19,11 +19,34 @@ http://www.apache.org/licenses/LICENSE-2.0
             return JSON.stringify({result: 'Aucune requete recue. Input: ' + JSON.stringify(input)});
           }
 
-          const searchUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(query);
-
-          return JSON.stringify({
-            result: 'Recherche : ' + query + '\nOuvrir : ' + searchUrl,
+          // Wikipedia API — confirmed working in Edge Gallery WebView
+          const params = new URLSearchParams({
+            action: 'query',
+            generator: 'search',
+            gsrsearch: query,
+            gsrlimit: '3',
+            prop: 'extracts',
+            exintro: '',
+            explaintext: '',
+            exsentences: '3',
+            redirects: '1',
+            format: 'json',
+            origin: '*',
           });
+          const res = await fetch('https://' + lang + '.wikipedia.org/w/api.php?' + params);
+          const json = await res.json();
+          const pages = json && json.query && json.query.pages;
+
+          if (!pages || Object.keys(pages).length === 0) {
+            return JSON.stringify({result: 'Aucun resultat trouve pour : ' + query});
+          }
+
+          const results = Object.values(pages)
+            .sort((a, b) => (a.index || 0) - (b.index || 0))
+            .map(p => p.title + ' : ' + (p.extract || '').split('\n')[0])
+            .join('\n\n');
+
+          return JSON.stringify({result: 'Resultats pour "' + query + '" :\n\n' + results});
         } catch (e) {
           return JSON.stringify({result: 'Erreur : ' + e.message});
         }
