@@ -1,0 +1,99 @@
+<!--
+@license
+Copyright 2026 Google LLC
+Licensed under the Apache License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0
+-->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recherche</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f8f9fa; color: #222; padding: 12px; }
+    h2 { font-size: 14px; color: #555; margin-bottom: 12px; }
+    .item { background: #fff; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .item-title { font-size: 14px; font-weight: 600; color: #1a0dab; margin-bottom: 4px; }
+    .item-title a { color: #1a0dab; text-decoration: none; }
+    .item-desc { font-size: 12px; color: #444; line-height: 1.4; }
+    .item-source { font-size: 11px; color: #999; margin-top: 4px; }
+    .section-label { font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
+    .ddg-link { display: block; text-align: center; margin: 16px 0 4px; padding: 10px; background: #e9f0ff; border-radius: 8px; font-size: 13px; color: #1a0dab; text-decoration: none; }
+    .empty { color: #999; font-size: 13px; text-align: center; padding: 24px 12px; }
+    .loading { color: #999; font-size: 13px; text-align: center; padding: 32px; }
+  </style>
+</head>
+<body>
+  <div id="content" class="loading">Recherche en cours…</div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const query = (params.get('q') || '').trim();
+    const lang  = (params.get('lang') || 'fr').slice(0, 2);
+
+    async function run() {
+      const el = document.getElementById('content');
+      if (!query) { el.innerHTML = '<p class="empty">Aucune requête fournie.</p>'; return; }
+
+      let html = '<h2>Résultats pour : <em>' + query + '</em></h2>';
+      let found = false;
+
+      // 1. DuckDuckGo Instant Answers
+      try {
+        const ddgP = new URLSearchParams({ q: query, format: 'json', no_html: '1', skip_disambig: '1', t: 'GemmaSearch' });
+        const d = await fetch('https://api.duckduckgo.com/?' + ddgP).then(r => r.json());
+
+        if (d.Answer) {
+          found = true;
+          html += '<div class="item"><div class="item-title">Réponse rapide</div><div class="item-desc">' + d.Answer + '</div></div>';
+        }
+        if (d.AbstractText) {
+          found = true;
+          html += '<div class="item"><div class="item-desc">' + d.AbstractText + '</div>' + (d.AbstractURL ? '<div class="item-source">' + d.AbstractURL + '</div>' : '') + '</div>';
+        }
+        if (d.Definition) {
+          found = true;
+          html += '<div class="item"><div class="item-title">Définition</div><div class="item-desc">' + d.Definition + '</div></div>';
+        }
+        const topics = (d.RelatedTopics || []).filter(t => t.Text).slice(0, 4);
+        if (topics.length) {
+          found = true;
+          html += '<div class="section-label">Sujets liés</div>';
+          topics.forEach(t => { html += '<div class="item"><div class="item-desc">' + t.Text + '</div></div>'; });
+        }
+      } catch (_) {}
+
+      // 2. Google News RSS (actualités)
+      if (!found) {
+        try {
+          const gl = lang.toUpperCase();
+          const rssUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(query) + '&hl=' + lang + '&gl=' + gl + '&ceid=' + gl + ':' + lang;
+          const rssText = await fetch(rssUrl).then(r => r.text());
+          const xml = new DOMParser().parseFromString(rssText, 'text/xml');
+          const items = [...xml.querySelectorAll('item')].slice(0, 6);
+          if (items.length) {
+            found = true;
+            html += '<div class="section-label">Actualités</div>';
+            items.forEach(item => {
+              const title  = item.querySelector('title')?.textContent || '';
+              const source = item.querySelector('source')?.textContent || '';
+              const link   = item.querySelector('link')?.textContent || '';
+              html += '<div class="item"><div class="item-title">' + (link ? '<a href="' + link + '">' + title + '</a>' : title) + '</div>' + (source ? '<div class="item-source">' + source + '</div>' : '') + '</div>';
+            });
+          }
+        } catch (_) {}
+      }
+
+      if (!found) {
+        html += '<p class="empty">Aucun résultat instantané trouvé.<br>Essayez des termes plus précis.</p>';
+      }
+
+      html += '<a class="ddg-link" href="https://duckduckgo.com/?q=' + encodeURIComponent(query) + '">Voir tous les résultats sur DuckDuckGo →</a>';
+      el.innerHTML = html;
+    }
+
+    run();
+  </script>
+</body>
+</html>
