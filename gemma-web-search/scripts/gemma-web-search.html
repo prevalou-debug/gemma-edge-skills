@@ -1,0 +1,34 @@
+<!--
+@license
+Copyright 2026 Google LLC
+Licensed under the Apache License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head><meta charset="UTF-8" /><title>Gemma Web Search</title></head>
+  <body>
+    <script>
+      window['ai_edge_gallery_get_result'] = async (data) => {
+        try {
+          const input = typeof data === 'string' ? JSON.parse(data) : data;
+          const query = (input.query || '').trim();
+          const lang  = (input.lang  || 'fr').toLowerCase().slice(0, 2);
+
+          if (!query) {
+            return JSON.stringify({result: 'Aucune requete recue. Input: ' + JSON.stringify(input)});
+          }
+
+          const searchUrl = 'https://duckduckgo.com/?q=' + encodeURIComponent(query) + '&kl=' + lang + '-' + lang;
+
+          return JSON.stringify({
+            result: 'Resultats de recherche pour : ' + query,
+            webview: {url: searchUrl, aspectRatio: 1.6},
+          });
+        } catch (e) {
+          return JSON.stringify({result: 'Erreur : ' + e.message});
+        }
+      };
+    </script>
+  </body>
+</html>
