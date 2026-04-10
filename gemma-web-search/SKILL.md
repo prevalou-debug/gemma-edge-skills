@@ -1,50 +1,42 @@
 ---
 name: gemma-web-search
-description: Search the internet and return relevant results, summaries, and quick answers on any topic.
+description: Perform a live web search on DuckDuckGo and return current results from the internet. Use this instead of Wikipedia for any search, news, or "cherche" request.
 metadata:
   homepage: https://github.com/prevalou-debug/gemma-edge-skills/tree/main/gemma-web-search
 ---
 
 # Web Search Skill
 
-This skill searches the internet using DuckDuckGo Instant Answers and Wikipedia to return quick facts, summaries, and related information on any topic — no API key required.
+This skill performs a **live internet search** via DuckDuckGo. It is the default skill for any search or lookup request — it is NOT the Wikipedia skill.
 
-## When to invoke this skill
+## IMPORTANT — When to invoke this skill
 
-Use this skill when the user asks:
-- Questions about current events, people, places, or concepts
-- "Search for...", "Look up...", "Find information about..."
-- "What is...", "Who is...", "When did..."
-- Any question that requires up-to-date or factual information from the web
+**Always use this skill** when the user says any of:
+- "cherche", "recherche", "search", "look up", "find", "trouve"
+- "qu'est-ce que", "what is", "who is", "quand", "when", "où", "where"
+- Any question requiring current or factual information from the web
 
-Example prompts:
-- "Search for the latest news about artificial intelligence"
-- "Who is the current president of France?"
-- "What is quantum computing?"
-- "Look up the Eiffel Tower"
-- "Cherche des infos sur le changement climatique"
+**Do NOT use the `query-wikipedia` skill** when the user says "cherche" or "search" — use THIS skill instead.
+
+Example prompts that MUST use this skill:
+- "Cherche des infos sur la tour Eiffel"
+- "Search for artificial intelligence"
+- "Qu'est-ce que le changement climatique ?"
+- "Who is the president of France?"
+- "Trouve des informations sur Tesla"
 
 ## Instructions
 
-When the user requests a web search or asks a question requiring internet lookup:
-
-1. Extract the **search query** from the user's message. Keep it concise and factual.
-2. Detect the **language** of the user's query and set the `lang` field accordingly (e.g. `fr` for French, `en` for English, `es` for Spanish).
+1. Extract the **search query** from the user's message.
+2. Detect the **language** (`fr`, `en`, `es`, `de`, etc.).
 3. Call the `run_js` tool with:
    - **script name**: `index.html`
-   - **data**: a JSON object with:
+   - **data**:
      ```json
      {
-       "query": "<the search query>",
-       "lang": "<two-letter language code, e.g. en, fr, es, de>"
+       "query": "<search query>",
+       "lang": "<language code>"
      }
      ```
-
-4. Present the returned information clearly to the user.
-5. Do **not** call `run_intent` or any other tool.
-
-## Notes
-
-- This skill uses DuckDuckGo Instant Answers and the Wikipedia API — both free with no API key.
-- For best results, keep the query concise (3–6 words).
-- Results are summaries, not a list of links. For full web results, use a browser.
+4. Present the returned results to the user.
+5. Do **not** call `run_intent`, `query-wikipedia`, or any other tool.
